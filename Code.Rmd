@@ -1,0 +1,173 @@
+---
+title: <p style="font-size:20pt; font-style:bold">**Dublin City Marathon 2018**</p>
+author: <p style="font-size:11pt; font-style:bold"> Fiona Devaney, Lakshya Gazaresen, Eoin McLoughlin, Vishal Walia</p>
+date: <p style="font-size:10pt">`r format(Sys.time(), '%d %B, %Y')`</p>
+output: html_document
+---
+<center>
+
+<img src="Marathonlogo.jpg" width="180" height="160" >
+
+
+</center>
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=8.5, fig.height=2.5, echo=FALSE, fig.pos="H")
+
+marathon <-read.csv("dublin2018marathon.csv")   #please change according to your working directory
+# List of Packages Used (Please install first if not already on your computer):
+suppressMessages(library(tidyverse))
+suppressMessages(library(ggplot2))
+suppressMessages(library(lubridate))
+suppressMessages(library(reshape2))
+suppressMessages(library(knitr))
+suppressMessages(library(gridExtra))
+suppressMessages(library(png))
+library(magick)
+```
+
+### **Introduction, Tidying and Summary of the Marathon Dataset**
+##### **Introduction**
+Running a marathon is a test of grit, determination and discipline. In this report we are going to present our analysis of the Dublin City Marathon 2018. The dataset comprises names, club information, timings and rankings for both males and females which are further divided into gender-age group categories. Ages of the participants range from under 19 to above 80. Timings are recorded for every runner at four stages in the marathon: 10K, Halfway, 30K and Finish Time (represented by both Gun Time and Chip Time). Runners are ranked by gender, age category, stage positions and overall position in the marathon.
+
+The analysis will examine whether gender, age and club membership impact on the overall position of a runner in the marathon. We will look at which clubs are the best and which have the most members. The performance of runners before and after the halfway mark will also be examined. We will fit a regression model by taking "Overall.Position" as the response and "Category" as the predictor, which will eliminate any insignificant categories. We hope you enjoy our interpretation of the data.
+
+##### **Group Members Contribution to the project:**  
+I, Fiona Devaney, had primary responsibility for the tidying of the dataset, production of the summary data and overall aesthetics of the report.
+
+I, Lakshya Gazaresen, worked on the introduction, research question and summary data. My analysis focused on the performance of runners based on the stages of the marathon.
+
+I, Eoin McLoughlin, was primarily involved in writing the supporting text of the document.
+
+I, Vishal Walia, worked on the research question and summary data. My analysis focused on the performance of runners based on club membership and finding the significance of variables.
+
+The group had several meetings where we all collectively edited the code, text and presentation of data together.
+
+##### **Tidying the dataset**
+```{r}
+summary <- summary(marathon)    # Run summary to see output
+### Remove DNF And DQ data from the dataset
+marathon <-read.csv("dublin2018marathon.csv", stringsAsFactors = F)
+mar1 <- filter(marathon, Overall.Position!="DNF", Overall.Position != "DQ")
+### Convert Relevant Data To Numeric/Time Vectors and Factors
+mar1 <- mar1 %>% mutate_at(c("Gender.Position","Category.Position", "Overall.Position", "Chip.Position"), as.numeric)
+mar1 <- mar1 %>% mutate_at(c("X10K", "Halfway", "X30K", "Chip.Time", "Gun.Time"), parse_time)
+mar1 <- mar1 %>% mutate_at(c("Gender", "Category","Club"), factor)
+mar1 <- separate(mar1, Category, c(NA, "AgeCat"), sep=1, remove=F)
+mar1$AgeCat <- factor(mar1$AgeCat, levels = c("U19", "S", "35", "40", "45", "50", "55", "60", "65", "70", "75", "80"))
+### Keep only the interesting variables from the dataset
+marTidy <- select(mar1, Race.Number, Gender:X10K, Halfway, X30K, Gun.Time:Chip.Position)
+### Additional columns
+marTidy$inaClub <- ifelse(marTidy$Club=="", "no","yes")
+```
+Before data analysis commenced, the structure of the dataset was examined, and from this, we decided to remove those runners who either did not finish ("DNF") or were disqualified ("DQ"). A number of variables, initially in the dataset as factors, were converted to either numeric or time variables. The "Category" variable (gender and age group combined) was split so that gender and age group could be looked at separately in the analysis; the new category for age group only was named "AgeCat". Finally, we selected only the variables of interest to us and named this new dataframe "marTidy". An additional column ("inaClub"), specifying whether a runner was a member of a club or not, was added to "marTidy". The dataset was then ready for our analysis.
+
+##### **Summary of the dataset**
+##### <u>Proportions</u>
+```{r, fig.width=8.5, fig.height=2.0}
+marTidy %>% count(Gender) %>% mutate(Percentage = (n / nrow(marTidy)*100)) -> marGen
+marGenP <- ggplot(marGen, aes(x = Gender, y = Percentage)) + geom_bar(stat = "identity", fill=c("dark red","dark blue"))
+marTidy %>% count(inaClub) %>% mutate(Percentage = (n / nrow(marTidy)*100)) -> marClub
+marClubP <- ggplot(marClub, aes(x = inaClub, y = Percentage)) + geom_bar(stat = "identity", fill=c("dark green", "dark orange"))+xlab("Club Runner")
+grid.arrange(marGenP,marClubP,ncol=2)
+```
+
+The marathon comprised ~34% females and ~66% males, with the majority of participants non-club runners (84.4%).
+
+```{r}
+tab <- table(marTidy$Gender, marTidy$AgeCat)
+kable((prop.table(tab,1)*100))
+```
+
+The 40-44 age group category had the highest proportion of runners for both males and females, followed by the S category (age 19-34).
+
+##### <u>Club Runners</u>
+```{r, fig.width=8.5, fig.height=2.5}
+clubs<-filter(marTidy, Club!="")
+clubPosition<-arrange(clubs,Overall.Position)
+x<-clubPosition %>% group_by(Club) %>% summarise(Overall.Position=mean(Overall.Position), noOfRunners = n())
+noOfRunners<- arrange(x,desc(noOfRunners))
+favouriteClub<-noOfRunners[1:5,]
+ggplot(data=favouriteClub,mapping = aes(x=reorder(Club,noOfRunners),y=noOfRunners))+
+  geom_col(fill="#f68060", alpha=.6, width=.4)+coord_flip()+xlab("Clubs")+ylab("Number of Runners")
+```
+
+```{r}
+Overall.Position<-arrange(x,Overall.Position)
+top10clubs<-Overall.Position[1:5,]
+top10clubs%>%mutate(Club=fct_reorder(Club,desc(Overall.Position)))%>%
+ggplot(mapping = aes(x=Club,y=Overall.Position))+
+  geom_col(fill="#f68060", alpha=.6, width=.4)+coord_flip()+xlab("Clubs")+ylab("Mean Overall Position")
+```
+
+Of all the running clubs present, "Marathon Club Ireland" had the most members competing in the marathon. The "Ballinamore A.C." club runners were the best performers based on mean overall position, followed closely by "St Malachy's A.C".
+
+##### <u>Timings</u>
+```{r}
+m <- rbind(((fivenum(marTidy$Chip.Time))/dminutes(1)),(fivenum(subset(marTidy,Gender=="Male")$Chip.Time)/dminutes(1)),(fivenum(subset(marTidy,Gender=="Female")$Chip.Time)/dminutes(1)))
+rownames(m) <- c("All","Male", "Female")
+colnames(m) <- c("Min", "LQ", "Median", "UQ","Max")
+kable(m)
+```
+
+The median chip time for the Dublin City Marathon 2018 was 249.53 minutes (~4hrs 9mins). The fastest chip time was 133.38 minutes (~2hr 13min), while the longest chip time was 507.72 (~8hrs 27mins). The fastest and slowest runners were both male.  When we looked at timings by gender, the median chip time for males was 237.8 minutes (~3hrs 57mins) compared to 269.1 minutes (~4hrs 29mins) for the females. The fastest female completed the marathon in 153.8 minutes (~2hrs 33mins), 20 minutes behind the fastest male.
+
+The above summary data does not give us any information about the significance of these findings - do age, gender and being part of a club play a role in how well a competitor places overall in the marathon? Let's find out!
+
+### **Research Question and Conclusions**  
+##### **How do the top ten males and females perform?**
+From the summary data, we could see that males in general were faster than females in this marathon. How do the elite athletes compare however? Below we looked at the timings for the top ten females and top ten males as recorded at each of the four stages of the marathon.
+```{r, fig.width=8.5, fig.height=2.5}
+topmale<-filter(marTidy, Gender=="Male")%>%select(Gender, Gender.Position, Overall.Position,X10K:Chip.Time)
+topfemale <-filter(marTidy,Gender=="Female")%>%select(Gender, Gender.Position, Overall.Position,X10K:Chip.Time)
+top10male <- topmale[1:10,]
+top10female <- topfemale[1:10,]
+top10 <- rbind(top10male,top10female)
+top.10 <- melt(top10,id=c("Gender","Gender.Position","Overall.Position","Gun.Time" ))
+ggplot(top.10, aes(x=Gender.Position, y=value,fill=variable))+geom_col(position='dodge')+facet_wrap(~Gender)+
+  scale_x_discrete(limits = c(1:10), breaks=1:10)+xlab("Gender Position")+ylab("Time")
+```
+
+The top ten males performed better than the top ten females at every stage of the marathon, though they had similar timings for the first ten kilometers. The gap between the genders increased at every stage thereafter, leading to a difference of 20 minutes between the fastest male and fastest female by the end of the marathon.
+
+So again, the data tells us that males were faster than females in this marathon, even at the top level. But what about age categories? Or members of a club? Is there a "goldilocks zone" for a runner based on gender, age and club membership?
+
+##### **How does category affect the performance of runners in a club versus those not in a club?**
+```{r, fig.width=8.5, fig.height=2.5}
+c11<-clubs%>%mutate(Categories=reorder(Category,Overall.Position,median))%>%ggplot(mapping=aes(x=Categories,y=Overall.Position,fill=Gender))+geom_boxplot()+ggtitle("Club Runners")+theme(plot.title = element_text(size = 10,face = "bold"))+ylab("Overall Position")
+c11
+NoClub<-filter(marTidy,inaClub=="no")
+c22<-NoClub%>%mutate(Categories=reorder(Category,Overall.Position,median))%>%ggplot(mapping=aes(x=Categories,y=Overall.Position,fill=Gender))+geom_boxplot()+ggtitle("non-Club Runners")+theme(plot.title = element_text(size = 10,face = "bold"))+ylab("Overall Position")+xlab("Category: Gender and Age combined")
+c22
+```
+
+Club runners tend to perform better than non-club runners, across all age categories. Six age categories for club runners had median values below the 5000th overall position versus one category with a median value below the 5000th overall position for non-club runners. At the higher end, only three age categories for club runners had median values higher than the 10000th position versus 16 for the non-club runners. Age also plays a part in how well the runners perform, with overall position, as a measure of performance (i.e. the lower the overall position, the better the performance), increasing with age from about 40 onwards for both genders, club and non-club runners alike. The under-19s female category performed better than all other categories for non-club runners, however there were only two runners in this category.
+
+##### **Finding the significance of the Category variable**
+Focusing on club runners, we created a model by taking overall position as the response variable and category as the explanatory variable for club runners only and found that seven age categories were insignificant (p > 0.05).
+```{r,height=4}
+z<-lm(Overall.Position~Category,data = clubs)
+y <-summary(z)      # Run y to see this summary table
+```
+
+```{r, fig.width=8.5, fig.height=2.5}
+OnlySC<-filter(clubs,Category!="F40",Category!="F60",Category!="F65",Category!="FS",Category!="M60",Category!="M65",Category!="M70")
+ggplot(data = OnlySC, mapping = aes(x=reorder(Category,Overall.Position, median),y=Overall.Position,fill=Gender))+geom_boxplot()+xlab("Category: Gender and Age combined")+ylab("Overall Position")
+```
+
+After removing the insignificant categories we can say that for runners in clubs males are the best runners with increasing age affecting their performance negatively. The MS category (ages 19-34) is out-performed by the M35 and M40 categories however. A similar pattern is observed with female club runner's performance and age, with one exception - the median value for the F50 category is marginally lower than that for the F45 category.
+
+##### **How do different age categories perform before and after the halfway mark?**
+Generally, the more disciplined the runner, the more constant their pace throughout a marathon. We wanted to see who were the most disciplined runners in terms of age, gender and club membership.
+```{r, warning=FALSE, fig.width=8.5, fig.height=3.5}
+marTidy$difference <-marTidy$Chip.Time-marTidy$Halfway
+b<-marTidy%>% group_by(AgeCat,Gender, inaClub)%>%summarise(lasthalf=mean(difference,na.rm=T),firsthalf=mean(Halfway,na.rm=T))
+b1 <- gather(b,lasthalf,firsthalf, key=stage, value=time)
+ggplot(data=b1,mapping = aes(x=AgeCat,y=time,fill=stage))+geom_bar(stat="identity",position='dodge')+scale_y_continuous()+facet_wrap("Gender")+ggtitle("Gender")+theme(plot.title = element_text(size = 10,face = "bold"))
+ggplot(data=b1,mapping = aes(x=AgeCat,y=time,fill=stage))+geom_bar(stat="identity",position='dodge')+scale_y_continuous()+facet_wrap("inaClub")+ggtitle("non-Club and Club Runners")+theme(plot.title = element_text(size = 10,face = "bold"))
+```
+
+It took longer to complete the second half of the marathon compared to the first half for all age categories for both genders and for club runners and non-club runners. As there was only one runner in the 80 age category, the mean time could not be calculated. Although slower, females tended to be more disciplined than their male counterparts for most age categories, with the noticeable exceptions of categories 65 and 70. Club runners also appeared to be more disciplined than their non-club runner counterparts with a smaller gap between the first half and second half for all age categories apart from category 70.
+
+##### **Main Conclusions:**  
+Based on the Dublin City Marathon 2018 dataset, regardless of whether runners are members of a club or not, male runners out-performed females runners. This is true even of the elite athletes (top ten males and females). Performance typically decreased with age, with the exception of the 19-34 S age category. This conforms with results from other marathons around the world where the general consensus is that marathon runners peak in their 30s. As the S category covers such a wide range of ages (19-34), it would be interesting to see a further breakdown of ages in this category versus performance. Female runners tended to be more disciplined, as were club runners. Based on our results, the perfect combination of attributes for runners competing in a marathon are: to be male club runners between the ages of 35-40.
